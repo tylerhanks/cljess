@@ -1,0 +1,2 @@
+# Cljess
+Chess in ClojureScript
