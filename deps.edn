@@ -4,5 +4,5 @@
         reagent {:mvn/version "0.9.1"}}
  :aliases {:dev {:extra-deps {com.bhauman/figwheel-main {:mvn/version "0.2.3"}
                               com.bhauman/rebel-readline-cljs {:mvn/version "0.1.4"}}}
-           :prod {:main-opts ["-m" "cljs.main"
+           :prod {:main-opts ["-m" "cljs.main" "-co" "prod.cljs.edn"
                               "-c" "cljess.core"]}}}

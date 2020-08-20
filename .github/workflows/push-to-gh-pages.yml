@@ -26,7 +26,7 @@ jobs:
         run: |
           clojure -A:prod
           cp -r -T resources/public build
-          cp -r out -t build
+          cp -r target/cljs-out -t build
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
