@@ -2,7 +2,7 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rDOM]))
 
-(def piece-info
+(def piece-image
   {:wp "https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"
    :bp "https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"
    :wn "https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg"
@@ -15,6 +15,14 @@
    :bq "https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg"
    :wk "https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg"
    :bk "https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg"})
+
+(def piece-color
+  {:wp 1 :bp 0
+   :wn 1 :bn 0
+   :wb 1 :bb 0
+   :wr 1 :br 0
+   :wq 1 :bq 0
+   :wk 1 :bk 0})
 
 ;;map from board position (e.g. e4) to coordinate in game-state array (e.g. [3 4])
 (def board-to-coord
@@ -37,6 +45,16 @@
    [:wp :wp :wp :wp :wp :wp :wp :wp]
    [:wr :wn :wb :wq :wk :wb :wn :wr]])
 
+;;(defmulti legal-moves (fn [pos board] (get-piece pos)))
+
+;;(defmethod legal-moves [:bk :wk] [pos board])
+
+#_(defn gen-legal-rook-moves [pos color board]
+  (let [[x y] pos]
+    (let [legal-moves #{}]
+      (let [not-blocked? true]
+        (for [i (range x 8) :let [piece (get-piece-coord [i y])] :while not-blocked?]
+          (if (zero? piece) (conj legal-moves [i y]) ))))))
 
 (defonce game-state (r/atom nil))
 
@@ -44,38 +62,33 @@
 
 (defonce square-selection (r/atom nil))
 
-(defn get-piece [pos] (let [[x y] (board-to-coord pos)] ((@game-state x) y)))
-
-(defn get-piece-coord [pos] (let [[x y] pos] ((@game-state x) y)))
+(defn get-piece [pos] (cond (vector? pos) (get-in @game-state pos) (keyword? pos) (let [p (board-to-coord pos)] (get-in @game-state p))))
 
 (defn move-piece [from to]
   (let [piece (get-piece from)]
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (board-to-coord from) 0)
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (board-to-coord to) piece)))
+    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? from) (board-to-coord from) (vector? from) from) 0)
+    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)))
 
-(defn move-piece-coord [from to]
-  (let [piece (get-piece-coord from)]
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) from 0)
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) to piece)))
+(defmulti legal-moves (fn [pos board] (get-piece pos)))
+(defmethod legal-moves [:br :wr] [pos board]
+  (let [[x y] pos moves #{} color (piece-color (get-piece pos)) blocked? (atom false)]
+    (for [i (range x 8) :let [piece (get-piece [i y])] :while (not @blocked?)]
+      (if (zero? piece) (conj moves [i y])
+          (if (= color (piece-color piece)) (reset! blocked? true) ((reset! blocked? true) (conj moves [i y])))))))
+
+(defmethod legal-moves [:bk :wk] [pos board]
+  (let [piece (get-piece pos) moves #{} [x y] pos]))
+
 
 (defn square [piece coord color]
   [:button {:class (str color "-square")
-            :on-click #((if (and (nil? @square-selection) (zero? (get-piece-coord coord))) nil
+            :on-click #((if (and (nil? @square-selection) (zero? (get-piece coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
-                                ((move-piece-coord @square-selection coord) (reset! square-selection nil)))))}
+                                ((move-piece @square-selection coord) (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
 (defn board []
-  (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-info el) [i j] (v (mod (+ i j) 2)))) (nth @game-state i))]))))
-  #_[:div
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [0 i] (if (== (mod i 2) 0) "light" "dark"))) (nth @game-state 0))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [1 i] (if (== (mod (inc i) 2) 0) "light" "dark"))) (nth @game-state 1))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [2 i] (if (== (mod i 2) 0) "light" "dark"))) (nth @game-state 2))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [3 i] (if (== (mod (inc i) 2) 0) "light" "dark"))) (nth @game-state 3))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [4 i] (if (== (mod i 2) 0) "light" "dark"))) (nth @game-state 4))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [5 i] (if (== (mod (inc i) 2) 0) "light" "dark"))) (nth @game-state 5))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [6 i] (if (== (mod i 2) 0) "light" "dark"))) (nth @game-state 6))]
-   [:div {:class "board-row"}(map-indexed (fn [i el] (square (piece-info el) [7 i] (if (== (mod (inc i) 2) 0) "light" "dark"))) (nth @game-state 7))]]
+  (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-image el) [i j] (v (mod (+ i j) 2)))) (nth @game-state i))]))))
 
 (defn app []
   [:div

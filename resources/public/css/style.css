@@ -41,11 +41,3 @@ body {
   content: "";
   display: table;
 }
-
-table {
-    border: 1px solid black;
-}
-
-td, th {
-    padding: 0;
-}
