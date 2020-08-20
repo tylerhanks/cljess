@@ -93,9 +93,11 @@
 (defn app []
   [:div
    [:h1 "Cljess!"]
-   [board]])
+   [board]
+   [:button {:on-click #(new-game)} "New Game"]])
 
 (defn init! []
+  (new-game)
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
