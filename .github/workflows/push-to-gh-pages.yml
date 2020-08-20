@@ -1,0 +1,35 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Prepare Java
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.11
+
+      - name: Prepare Clojure
+        uses: DeLaGuardo/setup-clojure@2.0
+        with:
+          tools-deps: latest
+
+      - name: Build
+        run: |
+          clojure -A:prod
+          cp -r -T resources/public build
+          cp -r out -t build
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build

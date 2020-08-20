@@ -3,4 +3,6 @@
         org.clojure/clojurescript {:mvn/version "1.10.597"}
         reagent {:mvn/version "0.9.1"}}
  :aliases {:dev {:extra-deps {com.bhauman/figwheel-main {:mvn/version "0.2.3"}
-                              com.bhauman/rebel-readline-cljs {:mvn/version "0.1.4"}}}}}
+                              com.bhauman/rebel-readline-cljs {:mvn/version "0.1.4"}}}
+           :prod {:main-opts ["-m" "cljs.main"
+                              "-c" "cljess.core"]}}}
