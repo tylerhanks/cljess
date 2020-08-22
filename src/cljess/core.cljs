@@ -2,6 +2,8 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rDOM]))
 
+;;(js-debugger)
+
 (def piece-image
   {:wp "https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"
    :bp "https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"
@@ -24,6 +26,8 @@
    :wq 1 :bq 0
    :wk 1 :bk 0})
 
+(defn piece-type [piece] (keyword (subs (name piece) 1 2)))
+
 ;;map from board position (e.g. e4) to coordinate in game-state array (e.g. [3 4])
 (def board-to-coord
   {:a8 [0 0] :b8 [0 1] :c8 [0 2] :d8 [0 3] :e8 [0 4] :f8 [0 5] :g8 [0 6] :h8 [0 7]
@@ -39,8 +43,8 @@
   [[:br :bn :bb :bq :bk :bb :bn :br]
    [:bp :bp :bp :bp :bp :bp :bp :bp]
    [0 0 0 0 0 0 0 0]
-   [0 0 0 0 0 0 0 0]
-   [0 0 0 0 0 0 0 0]
+   [0 0 0 :wr 0 0 0 0]
+   [0 0 0 0 :br 0 0 0]
    [0 0 0 0 0 0 0 0]
    [:wp :wp :wp :wp :wp :wp :wp :wp]
    [:wr :wn :wb :wq :wk :wb :wn :wr]])
@@ -57,34 +61,61 @@
           (if (zero? piece) (conj legal-moves [i y]) ))))))
 
 (defonce game-state (r/atom nil))
-
-(defn new-game [] (reset! game-state starting-position))
-
 (defonce square-selection (r/atom nil))
 
-(defn get-piece [pos] (cond (vector? pos) (get-in @game-state pos) (keyword? pos) (let [p (board-to-coord pos)] (get-in @game-state p))))
+(defn new-game! [] ((reset! game-state starting-position) (reset! square-selection nil)))
 
-(defn move-piece [from to]
-  (let [piece (get-piece from)]
+
+(defn get-piece "Get the piece (e.g. :wr) at pos on board"
+  [board pos] (cond (vector? pos) (get-in board pos) (keyword? pos) (let [p (board-to-coord pos)] (get-in board p))))
+
+(defn on-board? [[y x]] (and (>= x 0) (>= y 0) (< x 8) (< y 8)))
+
+(defn moves-in-direction "Get the legal moves for a piece at pos on board in direction (e.g. :nw, :up, etc.)"
+  [board pos dir]
+  (let [dir-vec (case dir :up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1])]
+    (loop [moves #{} next-pos (into [] (map + pos dir-vec))]
+      (if-not (on-board? next-pos) moves
+            (if (zero? (get-piece board next-pos)) (recur (conj moves next-pos) (into [] (map + next-pos dir-vec)))
+                (if (= (piece-color (get-piece board pos)) (piece-color (get-piece board next-pos))) moves (conj moves next-pos)))))))
+
+(defn moves-in-directions [board pos dirs]
+  (reduce clojure.set/union (map #(moves-in-direction board pos %) dirs)))
+
+(defmulti legal-moves (fn [board pos] (piece-type (get-piece board pos))))
+(defmethod legal-moves :r [board pos]
+  (moves-in-directions board pos [:up :down :left :right]))
+(defmethod legal-moves :b [board pos]
+  (moves-in-directions board pos [:nw :ne :sw :se]))
+(defmethod legal-moves :q [board pos]
+  (moves-in-directions board pos [:up :down :left :right :nw :ne :sw :se]))
+
+(defn move-piece! "Mutate game-state to move a piece from 'from' to 'to'"
+  [from to]
+  (let [piece (get-piece @game-state from)]
     (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? from) (board-to-coord from) (vector? from) from) 0)
     (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)))
 
-(defmulti legal-moves (fn [pos board] (get-piece pos)))
-(defmethod legal-moves [:br :wr] [pos board]
-  (let [[x y] pos moves #{} color (piece-color (get-piece pos)) blocked? (atom false)]
+#_(defmulti legal-moves (fn [pos] (piece-type (get-piece pos))))
+#_(defmethod legal-moves :r [pos]
+  (let [[x y] pos
+        moves #{}]
+    ))
+  #_(let [[x y] pos moves #{} color (piece-color (get-piece pos)) blocked? (atom false)]
     (for [i (range x 8) :let [piece (get-piece [i y])] :while (not @blocked?)]
       (if (zero? piece) (conj moves [i y])
-          (if (= color (piece-color piece)) (reset! blocked? true) ((reset! blocked? true) (conj moves [i y])))))))
-
-(defmethod legal-moves [:bk :wk] [pos board]
+          (if (= color (piece-color piece)) (reset! blocked? true) ((reset! blocked? true) (conj moves [i y]))))))
+#_(defmethod legal-moves [:bk :wk] [pos]
   (let [piece (get-piece pos) moves #{} [x y] pos]))
+#_(defmethod legal-moves 0 [pos] #{})
 
+(defn legal? [board from to] (cond (keyword? from) (contains? (legal-moves board (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (legal-moves board from) to)))
 
 (defn square [piece coord color]
   [:button {:class (str color "-square")
-            :on-click #((if (and (nil? @square-selection) (zero? (get-piece coord))) nil
+            :on-click #((if (and (nil? @square-selection) (zero? (get-piece @game-state coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
-                                ((move-piece @square-selection coord) (reset! square-selection nil)))))}
+                                (if (legal? @game-state @square-selection coord) ((move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
 (defn board []
@@ -94,10 +125,12 @@
   [:div
    [:h1 "Cljess!"]
    [board]
-   [:button {:on-click #(new-game)} "New Game"]])
+   [:button {:on-click #(new-game!)} "New Game"]])
 
 (defn init! []
-  (new-game)
+  (new-game!)
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
+
+#_(pr (moves-in-direction @game-state [4 3] :left))
