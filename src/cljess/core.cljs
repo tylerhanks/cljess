@@ -2,8 +2,6 @@
   (:require [reagent.core :as r]
             [reagent.dom :as rDOM]))
 
-;;(js-debugger)
-
 (def piece-image
   {:wp "https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"
    :bp "https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"
@@ -49,17 +47,6 @@
    [:wp :wp :wp :wp :wp :wp :wp :wp]
    [:wr :wn :wb :wq :wk :wb :wn :wr]])
 
-;;(defmulti legal-moves (fn [pos board] (get-piece pos)))
-
-;;(defmethod legal-moves [:bk :wk] [pos board])
-
-#_(defn gen-legal-rook-moves [pos color board]
-  (let [[x y] pos]
-    (let [legal-moves #{}]
-      (let [not-blocked? true]
-        (for [i (range x 8) :let [piece (get-piece-coord [i y])] :while not-blocked?]
-          (if (zero? piece) (conj legal-moves [i y]) ))))))
-
 (defonce game-state (r/atom nil))
 (defonce square-selection (r/atom nil))
 
@@ -70,6 +57,7 @@
   [board pos] (cond (vector? pos) (get-in board pos) (keyword? pos) (let [p (board-to-coord pos)] (get-in board p))))
 
 (defn on-board? [[y x]] (and (>= x 0) (>= y 0) (< x 8) (< y 8)))
+(defn same-color? [board pos1 pos2] (= (piece-color (get-piece board pos1)) (piece-color (get-piece board pos2))))
 
 (defn moves-in-direction "Get the legal moves for a piece at pos on board in direction (e.g. :nw, :up, etc.)"
   [board pos dir]
@@ -77,7 +65,7 @@
     (loop [moves #{} next-pos (into [] (map + pos dir-vec))]
       (if-not (on-board? next-pos) moves
             (if (zero? (get-piece board next-pos)) (recur (conj moves next-pos) (into [] (map + next-pos dir-vec)))
-                (if (= (piece-color (get-piece board pos)) (piece-color (get-piece board next-pos))) moves (conj moves next-pos)))))))
+                (if (same-color? board pos next-pos) moves (conj moves next-pos)))))))
 
 (defn moves-in-directions [board pos dirs]
   (reduce clojure.set/union (map #(moves-in-direction board pos %) dirs)))
@@ -89,25 +77,19 @@
   (moves-in-directions board pos [:nw :ne :sw :se]))
 (defmethod legal-moves :q [board pos]
   (moves-in-directions board pos [:up :down :left :right :nw :ne :sw :se]))
+(defmethod legal-moves :n [board pos]
+  (reduce
+   (fn [res vec]
+     (let [new-pos (into [] (map + pos vec))]
+       (if (and (on-board? new-pos) (not (same-color? board pos new-pos))) (conj res new-pos) res)))
+   #{}
+   [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]))
 
 (defn move-piece! "Mutate game-state to move a piece from 'from' to 'to'"
   [from to]
   (let [piece (get-piece @game-state from)]
     (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? from) (board-to-coord from) (vector? from) from) 0)
     (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)))
-
-#_(defmulti legal-moves (fn [pos] (piece-type (get-piece pos))))
-#_(defmethod legal-moves :r [pos]
-  (let [[x y] pos
-        moves #{}]
-    ))
-  #_(let [[x y] pos moves #{} color (piece-color (get-piece pos)) blocked? (atom false)]
-    (for [i (range x 8) :let [piece (get-piece [i y])] :while (not @blocked?)]
-      (if (zero? piece) (conj moves [i y])
-          (if (= color (piece-color piece)) (reset! blocked? true) ((reset! blocked? true) (conj moves [i y]))))))
-#_(defmethod legal-moves [:bk :wk] [pos]
-  (let [piece (get-piece pos) moves #{} [x y] pos]))
-#_(defmethod legal-moves 0 [pos] #{})
 
 (defn legal? [board from to] (cond (keyword? from) (contains? (legal-moves board (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (legal-moves board from) to)))
 
@@ -132,5 +114,3 @@
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
-
-#_(pr (moves-in-direction @game-state [4 3] :left))
