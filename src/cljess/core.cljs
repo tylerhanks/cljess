@@ -17,14 +17,14 @@
    :bk "https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg"})
 
 (def piece-color
-  {:wp 1 :bp 0
-   :wn 1 :bn 0
-   :wb 1 :bb 0
-   :wr 1 :br 0
-   :wq 1 :bq 0
-   :wk 1 :bk 0})
+  {:wp :w :bp :b
+   :wn :w :bn :b
+   :wb :w :bb :b
+   :wr :w :br :b
+   :wq :w :bq :b
+   :wk :w :bk :b})
 
-(defn piece-type [piece] (keyword (subs (name piece) 1 2)))
+(defn piece-type [piece] (if (keyword? piece) (keyword (subs (name piece) 1 2)) :none))
 
 ;;map from board position (e.g. e4) to coordinate in game-state array (e.g. [3 4])
 (def board-to-coord
@@ -47,10 +47,30 @@
    [:wp :wp :wp :wp :wp :wp :wp :wp]
    [:wr :wn :wb :wq :wk :wb :wn :wr]])
 
-(defonce game-state (r/atom nil))
+(defonce game-state
+  (r/atom {:board nil
+           :wqr-moved false
+           :wkr-moved false
+           :wk-moved false
+           :bqr-moved false
+           :bkr-moved false
+           :bk-moved false
+           :en-passantable nil
+           :turn :w}))
+
 (defonce square-selection (r/atom nil))
 
-(defn new-game! [] ((reset! game-state starting-position) (reset! square-selection nil)))
+(defn new-game! []
+  (reset! game-state {:board starting-position
+                      :wqr-moved false
+                      :wkr-moved false
+                      :wk-moved false
+                      :bqr-moved false
+                      :bkr-moved false
+                      :bk-moved false
+                      :en-passantable nil
+                      :turn :w})
+   (reset! square-selection nil))
 
 
 (defn get-piece "Get the piece (e.g. :wr) at pos on board"
@@ -70,38 +90,45 @@
 (defn moves-in-directions [board pos dirs]
   (reduce clojure.set/union (map #(moves-in-direction board pos %) dirs)))
 
-(defmulti legal-moves (fn [board pos] (piece-type (get-piece board pos))))
-(defmethod legal-moves :r [board pos]
-  (moves-in-directions board pos [:up :down :left :right]))
-(defmethod legal-moves :b [board pos]
-  (moves-in-directions board pos [:nw :ne :sw :se]))
-(defmethod legal-moves :q [board pos]
-  (moves-in-directions board pos [:up :down :left :right :nw :ne :sw :se]))
-(defmethod legal-moves :n [board pos]
-  (reduce
-   (fn [res vec]
-     (let [new-pos (into [] (map + pos vec))]
-       (if (and (on-board? new-pos) (not (same-color? board pos new-pos))) (conj res new-pos) res)))
-   #{}
-   [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]))
+(defmulti legal-moves (fn [{board :board} pos] (piece-type (get-piece board pos))))
+(defmethod legal-moves :r [{board :board turn :turn} pos]
+  (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:up :down :left :right]) #{}))
+(defmethod legal-moves :b [{board :board turn :turn} pos]
+  (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:nw :ne :sw :se]) #{}))
+(defmethod legal-moves :q [{board :board turn :turn} pos]
+  (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:up :down :left :right :nw :ne :sw :se]) #{}))
+(defmethod legal-moves :n [{board :board turn :turn} pos]
+  (if (= turn (piece-color (get-piece board pos)))
+    (reduce (fn [res vec]
+              (let [new-pos (into [] (map + pos vec))]
+                (if (and (on-board? new-pos) (not (same-color? board pos new-pos))) (conj res new-pos) res)))
+            #{}
+            [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]) #{}))
+(defmethod legal-moves :p [{board :board en-passantable :en-passantable} pos]
+  (let [color (piece-color (get-piece board pos)) [y x] pos moves #{}]
+    (case color
+      :w (let [moves #{[(dec y) x]}] moves)
+      :b (let [moves #{[(inc y) x]}] moves))))
+(defmethod legal-moves :none [_ _] #{})
 
-(defn move-piece! "Mutate game-state to move a piece from 'from' to 'to'"
+(defn move-piece! "Mutate game-state to move a piece from 'from' to 'to' and switch turns"
   [from to]
-  (let [piece (get-piece @game-state from)]
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? from) (board-to-coord from) (vector? from) from) 0)
-    (swap! game-state (fn [state pos piece] (assoc-in state pos piece)) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)))
+  (let [piece (get-piece (:board @game-state) from)]
+    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? from) (board-to-coord from) (vector? from) from) 0)
+    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)
+    (swap! game-state (fn [{turn :turn :as state}] (assoc state :turn (case turn :w :b :b :w))))))
 
-(defn legal? [board from to] (cond (keyword? from) (contains? (legal-moves board (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (legal-moves board from) to)))
+(defn legal? [state from to] (cond (keyword? from) (contains? (legal-moves state (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (legal-moves state from) to)))
 
 (defn square [piece coord color]
   [:button {:class (str color "-square")
-            :on-click #((if (and (nil? @square-selection) (zero? (get-piece @game-state coord))) nil
+            :on-click #((if (and (nil? @square-selection) (zero? (get-piece (:board @game-state) coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
                                 (if (legal? @game-state @square-selection coord) ((move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
 (defn board []
-  (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-image el) [i j] (v (mod (+ i j) 2)))) (nth @game-state i))]))))
+  (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-image el) [i j] (v (mod (+ i j) 2)))) (nth (:board @game-state) i))]))))
 
 (defn app []
   [:div
