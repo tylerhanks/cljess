@@ -41,8 +41,8 @@
   [[:br :bn :bb :bq :bk :bb :bn :br]
    [:bp :bp :bp :bp :bp :bp :bp :bp]
    [0 0 0 0 0 0 0 0]
-   [0 0 0 :wr 0 0 0 0]
-   [0 0 0 0 :br 0 0 0]
+   [0 0 0 0 0 0 0 0]
+   [0 0 0 0 0 0 0 0]
    [0 0 0 0 0 0 0 0]
    [:wp :wp :wp :wp :wp :wp :wp :wp]
    [:wr :wn :wb :wq :wk :wb :wn :wr]])
@@ -78,6 +78,9 @@
 
 (defn on-board? [[y x]] (and (>= x 0) (>= y 0) (< x 8) (< y 8)))
 (defn same-color? [board pos1 pos2] (= (piece-color (get-piece board pos1)) (piece-color (get-piece board pos2))))
+(defn opposite-color? [board pos1 pos2]
+  (let [piece1 (get-piece board pos1) piece2 (get-piece board pos2)]
+    (or (and (= (piece-color piece1) :w) (= (piece-color piece2) :b)) (and (= (piece-color piece1) :b) (= (piece-color piece2) :w)))))
 
 (defn moves-in-direction "Get the legal moves for a piece at pos on board in direction (e.g. :nw, :up, etc.)"
   [board pos dir]
@@ -90,6 +93,7 @@
 (defn moves-in-directions [board pos dirs]
   (reduce clojure.set/union (map #(moves-in-direction board pos %) dirs)))
 
+;;code to find legal moves for a piece at pos on board
 (defmulti legal-moves (fn [{board :board} pos] (piece-type (get-piece board pos))))
 (defmethod legal-moves :r [{board :board turn :turn} pos]
   (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:up :down :left :right]) #{}))
@@ -104,11 +108,18 @@
                 (if (and (on-board? new-pos) (not (same-color? board pos new-pos))) (conj res new-pos) res)))
             #{}
             [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]) #{}))
-(defmethod legal-moves :p [{board :board en-passantable :en-passantable} pos]
-  (let [color (piece-color (get-piece board pos)) [y x] pos moves #{}]
-    (case color
-      :w (let [moves #{[(dec y) x]}] moves)
-      :b (let [moves #{[(inc y) x]}] moves))))
+(defmethod legal-moves :p [{board :board turn :turn} [y x :as pos]]
+  (let [color (piece-color (get-piece board pos))]
+    (if (= color turn)
+      (case color
+        :w (disj (conj #{}
+                       (when (zero? (get-in board [(dec y) x])) [(dec y) x])
+                       (when (opposite-color? board pos [(dec y) (dec x)]) [(dec y) (dec x)])
+                       (when (opposite-color? board pos [(dec y) (inc x)]) [(dec y) (inc x)])) nil)
+        :b (disj (conj #{}
+                       (when (zero? (get-in board [(inc y) x])) [(inc y) x])
+                       (when (opposite-color? board pos [(inc y) (dec x)]) [(inc y) (dec x)])
+                       (when (opposite-color? board pos [(inc y) (inc x)]) [(inc y) (inc x)])) nil)) #{})))
 (defmethod legal-moves :none [_ _] #{})
 
 (defn move-piece! "Mutate game-state to move a piece from 'from' to 'to' and switch turns"
@@ -127,13 +138,13 @@
                                 (if (legal? @game-state @square-selection coord) ((move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
-(defn board []
+(defn chess-board []
   (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-image el) [i j] (v (mod (+ i j) 2)))) (nth (:board @game-state) i))]))))
 
 (defn app []
   [:div
    [:h1 "Cljess!"]
-   [board]
+   [chess-board]
    [:button {:on-click #(new-game!)} "New Game"]])
 
 (defn init! []
