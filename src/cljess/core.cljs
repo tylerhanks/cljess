@@ -59,6 +59,8 @@
            :turn :w}))
 
 (defonce square-selection (r/atom nil))
+(defonce debug-piece-selection (r/atom nil))
+(defonce debug-mode (r/atom false))
 
 (defn new-game! []
   (reset! game-state {:board starting-position
@@ -69,8 +71,23 @@
                       :bkr-moved false
                       :bk-moved false
                       :en-passantable nil
-                      :turn :w})
-   (reset! square-selection nil))
+                      :turn :w
+                      :check false
+                      :abs-pin nil})
+  (reset! square-selection nil)
+  (reset! debug-mode false))
+
+(defn clear-board! []
+  (swap! game-state (fn [state board] (assoc state :board board))
+         [[0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]
+          [0 0 0 0 0 0 0 0]])
+  (reset! square-selection nil))
 
 
 (defn get-piece "Get the piece (e.g. :wr) at pos on board"
@@ -116,28 +133,37 @@
           #{}
           [[1 2] [-1 2] [1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]))
 
+(defn pawn-captures [board pos]
+  (let [moves (case (piece-color (get-piece board pos)) :w [[-1 1] [-1 -1]] :b [[1 1] [1 -1]])
+        new-pos1 (vector-add pos (moves 0))
+        new-pos2 (vector-add pos (moves 1))]
+    (conj #{}
+          (when (opposite-color? board pos new-pos1) (piece-type (get-piece board new-pos1)))
+          (when (opposite-color? board pos new-pos2) (piece-type (get-piece board new-pos2))))))
+
 (defn check? [board king-pos]
   (or (contains? (captures-in-directions board king-pos [:up :down :left :right]) :r)
       (contains? (captures-in-directions board king-pos [:nw :ne :sw :se]) :b)
       (contains? (captures-in-directions board king-pos [:up :down :left :right :nw :ne :sw :se]) :q)
-      (contains? (knight-captures board king-pos) :n)))
+      (contains? (knight-captures board king-pos) :n)
+      (contains? (pawn-captures board king-pos) :p)))
 
-;;code to find legal moves for a piece at pos on board
-(defmulti legal-moves (fn [{board :board} pos] (piece-type (get-piece board pos))))
-(defmethod legal-moves :r [{board :board turn :turn} pos]
+;;code to find semi legal moves (i.e. without taking checks or pins into account) for a piece at pos on board
+(defmulti semi-legal-moves (fn [{board :board} pos] (piece-type (get-piece board pos))))
+(defmethod semi-legal-moves :r [{board :board turn :turn} pos]
   (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:up :down :left :right]) #{}))
-(defmethod legal-moves :b [{board :board turn :turn} pos]
+(defmethod semi-legal-moves :b [{board :board turn :turn} pos]
   (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:nw :ne :sw :se]) #{}))
-(defmethod legal-moves :q [{board :board turn :turn} pos]
+(defmethod semi-legal-moves :q [{board :board turn :turn} pos]
   (if (= turn (piece-color (get-piece board pos))) (moves-in-directions board pos [:up :down :left :right :nw :ne :sw :se]) #{}))
-(defmethod legal-moves :n [{board :board turn :turn} pos]
+(defmethod semi-legal-moves :n [{board :board turn :turn} pos]
   (if (= turn (piece-color (get-piece board pos)))
     (reduce (fn [res vec]
               (let [new-pos (into [] (map + pos vec))]
                 (if (and (on-board? new-pos) (not (same-color? board pos new-pos))) (conj res new-pos) res)))
             #{}
             [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]) #{}))
-(defmethod legal-moves :p [{board :board turn :turn} [y x :as pos]]
+(defmethod semi-legal-moves :p [{board :board turn :turn} [y x :as pos]]
   (let [color (piece-color (get-piece board pos))]
     (if (= color turn)
       (case color
@@ -149,7 +175,14 @@
                        (when (zero? (get-in board [(inc y) x])) [(inc y) x])
                        (when (opposite-color? board pos [(inc y) (dec x)]) [(inc y) (dec x)])
                        (when (opposite-color? board pos [(inc y) (inc x)]) [(inc y) (inc x)])) nil)) #{})))
-(defmethod legal-moves :none [_ _] #{})
+(defmethod semi-legal-moves :k [{board :board turn :turn} pos]
+  (if (= turn (piece-color (get-piece board pos)))
+    (reduce (fn [res vec]
+              (let [new-pos (vector-add pos vec)]
+                (if (and (on-board? new-pos) (not (same-color? board pos new-pos)) (not (check? board new-pos))) (conj res new-pos) res)))
+            #{}
+            [[0 1] [0 -1] [1 0] [-1 0] [1 1] [1 -1] [-1 1] [-1 -1]]) #{}))
+(defmethod semi-legal-moves :none [_ _] #{})
 
 (defn move-piece! "Mutate game-state to move a piece from 'from' to 'to' and switch turns"
   [from to]
@@ -158,23 +191,47 @@
     (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? to) (board-to-coord to) (vector? to) to) piece)
     (swap! game-state (fn [{turn :turn :as state}] (assoc state :turn (case turn :w :b :b :w))))))
 
-(defn legal? [state from to] (cond (keyword? from) (contains? (legal-moves state (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (legal-moves state from) to)))
+(defn legal? [state from to] (cond (keyword? from) (contains? (semi-legal-moves state (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (semi-legal-moves state from) to)))
 
 (defn square [piece coord color]
-  [:button {:class (str color "-square")
-            :on-click #((if (and (nil? @square-selection) (zero? (get-piece (:board @game-state) coord))) nil
+  [:button
+   {:class (str "square " color)
+    :on-click #(if @debug-mode
+                  (if-not (nil? @debug-piece-selection)
+                    (swap! game-state
+                           (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece)))
+                           coord @debug-piece-selection))
+                  (if (and (nil? @square-selection) (zero? (get-piece (:board @game-state) coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
-                                (if (legal? @game-state @square-selection coord) ((move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
+                                (if (legal? @game-state @square-selection coord) (do (move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
 (defn chess-board []
   (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece-image el) [i j] (v (mod (+ i j) 2)))) (nth (:board @game-state) i))]))))
 
+(defn piece-pane []
+  (reduce (fn [res piece]
+            (conj res [:button {:on-click #(reset! debug-piece-selection piece)} [:img {:src (piece-image piece)}]]))
+          [:div]
+          [:wk :wq :wr :wb :wn :wp :bk :bq :br :bb :bn :bp]))
+
+(defn turn-display []
+  [:div
+   [:h2 "Turn"]
+   (case (:turn @game-state)
+     :w [:div {:class "turn-display light"}]
+     :b [:div {:class "turn-display dark"}])])
+
 (defn app []
   [:div
    [:h1 "Cljess!"]
    [chess-board]
-   [:button {:on-click #(new-game!)} "New Game"]])
+   [:button {:class "medium-button" :on-click #(new-game!)} "New Game"]
+   [:button {:class "medium-button" :on-click #(reset! debug-mode true)} "God Mode"]
+   [:button {:class "medium-button" :on-click #(reset! debug-mode false)} "Play Mode"]
+   [:button {:class "medium-button" :on-click #(clear-board!)} "Clear Board"]
+   (if @debug-mode [piece-pane] nil)
+   [turn-display]])
 
 (defn init! []
   (new-game!)
