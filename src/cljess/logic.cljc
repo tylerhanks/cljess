@@ -1,9 +1,10 @@
 (ns cljess.logic
   (:require [cljess.piece :as piece]
-            [cljess.board :as board]))
+            [cljess.board :as board]
+            [reagent.core :as r]))
 
 (defn get-piece "Get the piece (e.g. :wr) at pos on board"
-  [board pos] (cond (vector? pos) (get-in board pos) (keyword? pos) (let [p (board-to-coord pos)] (get-in board p))))
+  [board pos] (cond (vector? pos) (get-in board pos) (keyword? pos) (let [p (board/board-to-coord pos)] (get-in board p))))
 
 (defn on-board? "Determine if a position is a valid board location"
   [[y x]] (and (>= x 0) (>= y 0) (< x 8) (< y 8)))
@@ -19,6 +20,12 @@
 
 (defn vector-add "Perform elementwise addition of two equal size vectors" [[x1 y1] [x2 y2]]
   [(+ x1 x2) (+ y1 y2)])
+
+(defn move-piece "Returns a new board which is the same as board with the piece at from moved to to"
+  [board from to]
+  (let [piece (get-piece board from)
+        new-board (assoc-in board from 0)]
+    (assoc-in new-board to piece)))
 
 ;;helper functions for finding legal moves
 (defn moves-in-direction "Get the legal moves for a piece at pos on board in direction (e.g. :nw, :up, etc.)"
@@ -36,7 +43,7 @@
 (defn capture-in-direction [board pos dir]
   (let [dir-vec (case dir :up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1])]
     (loop [capture #{} next-pos (vector-add pos dir-vec)]
-      (if-not (board/on-board? next-pos) capture
+      (if-not (on-board? next-pos) capture
               (if (zero? (get-piece board next-pos)) (recur capture (vector-add next-pos dir-vec))
                   (if (same-color? board pos next-pos) capture (conj capture (piece/typeof (get-piece board next-pos)))))))))
 
@@ -93,12 +100,31 @@
                        (when (opposite-color? board pos [(inc y) (dec x)]) [(inc y) (dec x)])
                        (when (opposite-color? board pos [(inc y) (inc x)]) [(inc y) (inc x)])) nil)) #{})))
 (defmethod semi-legal-moves :k [{board :board turn :turn} pos]
-  (if (= turn (piece-color (get-piece board pos)))
+  (if (= turn (piece/color (get-piece board pos)))
     (reduce (fn [res vec]
               (let [new-pos (vector-add pos vec)]
-                (if (and (on-board? new-pos) (not (same-color? board pos new-pos)) (not (check? board new-pos))) (conj res new-pos) res)))
+                (if (and (on-board? new-pos) (not (same-color? board pos new-pos)) (not (check? (move-piece board pos new-pos) new-pos))) (conj res new-pos) res)))
             #{}
             [[0 1] [0 -1] [1 0] [-1 0] [1 1] [1 -1] [-1 1] [-1 -1]]) #{}))
 (defmethod semi-legal-moves :none [_ _] #{})
 
-(defn legal? [state from to] (cond (keyword? from) (contains? (semi-legal-moves state (board-to-coord from)) (board-to-coord to)) (vector? from) (contains? (semi-legal-moves state from) to)))
+(defn legal? [state from to] (cond (keyword? from) (contains? (semi-legal-moves state (board/board-to-coord from)) (board/board-to-coord to)) (vector? from) (contains? (semi-legal-moves state from) to)))
+
+(defn move-piece! "Mutate game-state to move a piece from 'from' to 'to'"
+  [game-state from to]
+  (let [piece (get-piece (:board @game-state) from)]
+    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? from) (board/board-to-coord from) (vector? from) from) 0)
+    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? to) (board/board-to-coord to) (vector? to) to) piece)))
+
+
+
+(defn update-check-status! "Mutate game-state to reflect whether a check has been delivered"
+  [game-state]
+  (swap! game-state
+         (fn [{:keys [board wk-pos bk-pos] :as state}]
+           (assoc state :check
+                  (if (check? board wk-pos) :w
+                      (if (check? board bk-pos) :b nil))))))
+
+(defn change-turn! "Update the turn of the game. Should be called after a turn is over"
+  [game-state] (swap! game-state (fn [{turn :turn :as state}] (assoc state :turn (case turn :w :b :b :w)))))

@@ -5,16 +5,7 @@
             [cljess.board :as board]
             [cljess.logic :as logic]))
 
-(defonce game-state
-  (r/atom {:board nil
-           :wqr-moved false
-           :wkr-moved false
-           :wk-moved false
-           :bqr-moved false
-           :bkr-moved false
-           :bk-moved false
-           :en-passantable nil
-           :turn :w}))
+(defonce game-state (r/atom nil))
 
 (defonce square-selection (r/atom nil))
 (defonce debug-piece-selection (r/atom nil))
@@ -28,9 +19,11 @@
                       :bqr-moved false
                       :bkr-moved false
                       :bk-moved false
+                      :wk-pos [7 4]
+                      :bk-pos [0 4]
                       :en-passantable nil
                       :turn :w
-                      :check false
+                      :check nil
                       :abs-pin nil})
   (reset! square-selection nil)
   (reset! debug-mode false))
@@ -38,13 +31,6 @@
 (defn clear-board! []
   (swap! game-state (fn [state board] (assoc state :board board)) board/empty-board)
   (reset! square-selection nil))
-
-(defn move-piece! "Mutate game-state to move a piece from 'from' to 'to' and switch turns"
-  [from to]
-  (let [piece (logic/get-piece (:board @game-state) from)]
-    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? from) (board/board-to-coord from) (vector? from) from) 0)
-    (swap! game-state (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece))) (cond (keyword? to) (board/board-to-coord to) (vector? to) to) piece)
-    (swap! game-state (fn [{turn :turn :as state}] (assoc state :turn (case turn :w :b :b :w))))))
 
 (defn square [piece coord color]
   [:button
@@ -56,7 +42,12 @@
                            coord @debug-piece-selection))
                   (if (and (nil? @square-selection) (zero? (logic/get-piece (:board @game-state) coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
-                                (if (logic/legal? @game-state @square-selection coord) (do (move-piece! @square-selection coord) (reset! square-selection nil)) (reset! square-selection nil)))))}
+                                (if (logic/legal? @game-state @square-selection coord)
+                                  (do (logic/move-piece! game-state @square-selection coord)
+                                      (logic/update-check-status! game-state)
+                                      (logic/change-turn! game-state)
+                                      (reset! square-selection nil))
+                                  (reset! square-selection nil)))))}
    [:img {:src piece}]])
 
 (defn chess-board []
