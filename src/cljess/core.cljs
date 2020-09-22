@@ -12,19 +12,7 @@
 (defonce debug-mode (r/atom false))
 
 (defn new-game! []
-  (reset! game-state {:board board/starting-position
-                      :wqr-moved false
-                      :wkr-moved false
-                      :wk-moved false
-                      :bqr-moved false
-                      :bkr-moved false
-                      :bk-moved false
-                      :wk-pos [7 4]
-                      :bk-pos [0 4]
-                      :en-passantable nil
-                      :turn :w
-                      :check nil
-                      :abs-pin nil})
+  (logic/reset-game-state! game-state)
   (reset! square-selection nil)
   (reset! debug-mode false))
 
@@ -51,7 +39,7 @@
    [:img {:src piece}]])
 
 (defn chess-board []
-  (let [v ["dark" "light"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece/image el) [i j] (v (mod (+ i j) 2)))) (nth (:board @game-state) i))]))))
+  (let [v ["light" "dark"]] (into [:div] (for [i (range 8)] [:div {:class "board-row"} (map-indexed (fn [j el] (square (piece/image el) [i j] (v (mod (+ i j) 2)))) (nth (:board @game-state) i))]))))
 
 (defn piece-pane []
   (reduce (fn [res piece]
@@ -78,7 +66,7 @@
    [turn-display]])
 
 (defn init! []
-  (new-game!)
+  ;;(new-game!)
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
