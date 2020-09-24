@@ -31,9 +31,7 @@
                   (if (and (nil? @square-selection) (zero? (logic/get-piece (:board @game-state) coord))) nil
                             (if (nil? @square-selection) (reset! square-selection coord)
                                 (if (logic/legal? @game-state @square-selection coord)
-                                  (do (logic/move-piece! game-state @square-selection coord)
-                                      (logic/update-check-status! game-state)
-                                      (logic/change-turn! game-state)
+                                  (do (swap! game-state (fn [state from to] (logic/make-move state from to)) @square-selection coord)
                                       (reset! square-selection nil))
                                   (reset! square-selection nil)))))}
    [:img {:src piece}]])
@@ -66,7 +64,7 @@
    [turn-display]])
 
 (defn init! []
-  ;;(new-game!)
+  (new-game!)
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
