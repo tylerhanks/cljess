@@ -34,6 +34,8 @@
 
 (def dir-to-vec {:up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1]})
 
+(def other-color {:w :b :b :w})
+
 ;;Single Move: [[from-y from-x] [to-y to-y]]
 ;;Complete Move: key: [from to] val: {:additional-action [:move single-move]-or-[:delete pos] :effect-descriptors [effect keywords e.g. :progress, :king-move, etc.]}
 
@@ -174,15 +176,37 @@
       :w (if wk-moved false
              (case side
                :king-side (if wkr-moved false
-                              (and (not (check? (move-piece board [7 4] [7 5]) [7 5])) (not (check? (move-piece board [7 4] [7 6]) [7 6])) (zero? (get-piece board [7 5])) (zero? (get-piece board [7 6]))))
+                              (and
+                               (not (check? (move-piece board [7 4] [7 5]) [7 5]))
+                               (not (check? (move-piece board [7 4] [7 6]) [7 6]))
+                               (zero? (get-piece board [7 5]))
+                               (zero? (get-piece board [7 6]))
+                               (= :wr (get-piece board [7 7]))))
                :queen-side (if wqr-moved false
-                               (and (not (check? (move-piece board [7 4] [7 3]) [7 3])) (not (check? (move-piece board [7 4] [7 2]) [7 2])) (zero? (get-piece board [7 3])) (zero? (get-piece board [7 2])) (zero? (get-piece board [7 1]))))))
+                               (and
+                                (not (check? (move-piece board [7 4] [7 3]) [7 3]))
+                                (not (check? (move-piece board [7 4] [7 2]) [7 2]))
+                                (zero? (get-piece board [7 3]))
+                                (zero? (get-piece board [7 2]))
+                                (zero? (get-piece board [7 1]))
+                                (= :wr (get-piece board [7 0]))))))
       :b (if bk-moved false
              (case side
                :king-side (if bkr-moved false
-                              (and (not (check? (move-piece board [0 4] [0 5]) [0 5])) (not (check? (move-piece board [0 4] [0 6]) [0 6])) (zero? (get-piece board [0 5])) (zero? (get-piece board [0 6]))))
+                              (and
+                               (not (check? (move-piece board [0 4] [0 5]) [0 5]))
+                               (not (check? (move-piece board [0 4] [0 6]) [0 6]))
+                               (zero? (get-piece board [0 5]))
+                               (zero? (get-piece board [0 6]))
+                               (= :br (get-piece board [0 7]))))
                :queen-side (if bqr-moved false
-                               (and (not (check? (move-piece board [0 4] [0 3]) [0 3])) (not (check? (move-piece board [0 4] [0 2]) [0 2])) (zero? (get-piece board [0 3])) (zero? (get-piece board [0 2])) (zero? (get-piece board [0 1])))))))))
+                               (and
+                                (not (check? (move-piece board [0 4] [0 3]) [0 3]))
+                                (not (check? (move-piece board [0 4] [0 2]) [0 2]))
+                                (zero? (get-piece board [0 3]))
+                                (zero? (get-piece board [0 2]))
+                                (zero? (get-piece board [0 1]))
+                                (= :br (get-piece board [0 0])))))))))
 
 (defmulti legal-moves (fn [{board :board} pos] (piece/typeof (get-piece board pos))))
 
@@ -288,6 +312,15 @@
 
 (defmethod legal-moves :none [_ _] {})
 
+(defn all-legal-moves "Generate all legal moves for a game state" [state]
+  (loop [y 0 res {}]
+    (if (<= y 7)
+      (recur (inc y) (merge res (loop [x 0 moves {}]
+                                  (if (<= x 7)
+                                    (recur (inc x) (merge moves (legal-moves state [y x])))
+                                    moves))))
+      res)))
+
 ;;----------------------;;
 ;;-Legal move execution-;;
 ;;----------------------;;
@@ -298,8 +331,8 @@
   (if (nil? a)
     state
     (case action
-    :move (assoc state :board (move-piece board arg))
-    :delete (assoc state :board (delete-piece board arg)))))
+      :move (assoc state :board (move-piece board arg))
+      :delete (assoc state :board (delete-piece board arg)))))
 
 (defmulti do-effect (fn [state move effect] effect))
 (defmethod do-effect :wk-moved [state [_ to] _] (assoc state :wk-moved true :wk-pos to))
@@ -308,7 +341,7 @@
 (defmethod do-effect :wqr-moved [state _ _] (assoc state :wqr-moved true))
 (defmethod do-effect :bkr-moved [state _ _] (assoc state :bkr-moved true))
 (defmethod do-effect :bqr-moved [state _ _] (assoc state :bqr-moved true))
-(defmethod do-effect :progress [state _ _] (assoc state :no-prog-counter 0 :previous-boards nil :rep-counter 0))
+(defmethod do-effect :progress [state _ _] (assoc state :no-prog-counter 0 :previous-boards {}))
 (defmethod do-effect :en-passantable [state [[y x] _] _] (assoc state :en-passantable [(if (= y 1) 2 5) x]))
 (defmethod do-effect :queen [state [_ [y x :as to]] _] (assoc-in state [:board y x] (if (= y 0) :wq :bq)))
 
@@ -317,19 +350,34 @@
     state
     (reduce (fn [res effect] (do-effect res move effect)) state effect-descriptors)))
 
-(defn make-move [{:keys [board turn] :as state} from to]
+(defn record-board [{:keys [board previous-boards] :as state}]
+  (if (contains? previous-boards board)
+    (update-in state [:previous-boards board] #(inc %))
+    (update-in state [:previous-boards] #(assoc % board 1))))
+
+(defn update-result [{:keys [check board turn previous-boards no-prog-counter] :as state}]
+  (let [moves (all-legal-moves state)]
+    (if (or (>= no-prog-counter 100) (= (previous-boards board) 3) (and (not check) (= moves {})))
+      (assoc state :result :draw)
+      (if (and check (= moves {}))
+        (assoc state :result (other-color turn))
+        state))))
+
+(defn make-move [{:keys [board turn no-prog-counter] :as state} from to]
   (let [other-color {:w :b :b :w}
         move [from to]
         move-info ((legal-moves state from) move)
         additional-action (:additional-action move-info)
         effect-descriptors (:effect-descriptors move-info)]
-    (update-abs-pins
-     (update-check
-      (update-effects
-       (do-action
-        (assoc state :board (move-piece board move) :turn (other-color turn) :en-passantable nil)
-        additional-action)
-       move effect-descriptors))))) ;;TODO: add stuff for progress count and repetition stuff
+    (update-result
+     (record-board
+      (update-abs-pins
+       (update-check
+        (update-effects
+         (do-action
+          (assoc state :board (move-piece board move) :turn (other-color turn) :en-passantable nil :no-prog-counter (inc no-prog-counter))
+          additional-action)
+         move effect-descriptors)))))))
 
 (defn reset-game-state! "Takes an atom and resets it to a valid initial game state" [game-state]
   (reset! game-state {:board board/starting-position
@@ -345,7 +393,6 @@
                       :turn :w
                       :check false
                       :abs-pins #{} ;;positions of absolutely pinned pieces
-                      :rep-counter 0 ;;how many times a repetition has occured (draw if reaches 3)
                       :no-prog-counter 0 ;;how many turns without progress (draw if reaches 50)
-                      :previous-boards nil ;;keep track of game history between progressions
-                      }))
+                      :previous-boards {} ;;keep track of game history between progressions
+                      :result nil}))
