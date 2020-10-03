@@ -210,7 +210,8 @@
 
 (defmulti legal-moves (fn [{board :board} pos] (piece/typeof (get-piece board pos))))
 
-(defmethod legal-moves :b [{:keys [board turn check abs-pins] :as state} pos] ;;bishop moves
+(defmethod legal-moves :b ;;bishop moves
+  [{:keys [board turn check abs-pins] :as state} pos]
   (if (not= turn (get-color board pos))
     {}
     (let [bishop-dirs [:nw :ne :sw :se]
@@ -219,7 +220,8 @@
         (avoid-check board (king-pos state turn) moves)
         moves))))
 
-(defmethod legal-moves :q [{:keys [board turn check abs-pins] :as state} pos] ;;queen moves
+(defmethod legal-moves :q ;;queen moves
+  [{:keys [board turn check abs-pins] :as state} pos]
   (if (not= turn (get-color board pos))
     {}
     (let [queen-dirs [:left :right :up :down :nw :ne :sw :se]
@@ -228,7 +230,8 @@
         (avoid-check board (king-pos state turn) moves)
         moves))))
 
-(defmethod legal-moves :n [{:keys [board turn check abs-pins] :as state} pos] ;;knight moves
+(defmethod legal-moves :n ;;knight moves
+  [{:keys [board turn check abs-pins] :as state} pos]
   (if (or (not= turn (get-color board pos)) (contains? abs-pins pos))
     {}
     (let [moves (reduce (fn [res vec]
@@ -241,7 +244,8 @@
                         [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]])]
       (if check (avoid-check board (king-pos state turn) moves) moves))))
 
-(defmethod legal-moves :r [{:keys [board turn check abs-pins] :as state} pos] ;;rook moves
+(defmethod legal-moves :r ;;rook moves
+  [{:keys [board turn check abs-pins] :as state} pos]
   (if (not= turn (get-color board pos))
     {}
     (let [rook-dirs [:up :down :left :right]
@@ -259,7 +263,8 @@
                (into {} (map (fn [move] (update-in move [1 :effect-descriptors] #(into [] (conj % :bqr-moved)))) lmoves))
                lmoves))))))
 
-(defmethod legal-moves :k [{board :board turn :turn :as state} pos] ;;king moves
+(defmethod legal-moves :k ;;king moves
+  [{board :board turn :turn :as state} pos]
   (if (not= turn (get-color board pos))
     {}
     (merge (avoid-check-with-king board (reduce (fn [res vec] (let [new-pos (vector-add pos vec)]
@@ -275,7 +280,8 @@
                  (if (castle? state :b :king-side) {[[0 4] [0 6]] {:additional-action [:move [[0 7] [0 5]]] :effect-descriptors [:bk-moved]}} {})
                  (if (castle? state :b :queen-side) {[[0 4] [0 2]] {:additional-action [:move [[0 0] [0 3]]] :effect-descriptors [:bk-moved]}} {}))))))
 
-(defmethod legal-moves :p [{:keys [board en-passantable turn check abs-pins] :as state} [y x :as pos]] ;;pawn moves
+(defmethod legal-moves :p ;;pawn moves
+  [{:keys [board en-passantable turn check abs-pins] :as state} [y x :as pos]]
   (let [color (get-color board pos)]
     (if (not= turn color)
       {}
@@ -312,7 +318,8 @@
 
 (defmethod legal-moves :none [_ _] {})
 
-(defn all-legal-moves "Generate all legal moves for a game state" [state]
+(defn all-legal-moves "Generate all legal moves for a game state"
+  [state]
   (loop [y 0 res {}]
     (if (<= y 7)
       (recur (inc y) (merge res (loop [x 0 moves {}]
@@ -363,21 +370,43 @@
         (assoc state :result (other-color turn))
         state))))
 
-(defn make-move [{:keys [board turn no-prog-counter] :as state} from to]
-  (let [other-color {:w :b :b :w}
-        move [from to]
-        move-info ((legal-moves state from) move)
-        additional-action (:additional-action move-info)
-        effect-descriptors (:effect-descriptors move-info)]
-    (update-result
-     (record-board
-      (update-abs-pins
-       (update-check
-        (update-effects
-         (do-action
-          (assoc state :board (move-piece board move) :turn (other-color turn) :en-passantable nil :no-prog-counter (inc no-prog-counter))
-          additional-action)
-         move effect-descriptors)))))))
+(defn make-move
+  ([{:keys [board turn no-prog-counter] :as state} from to]
+   (let [move [from to]
+         move-info ((legal-moves state from) move)
+         additional-action (:additional-action move-info)
+         effect-descriptors (:effect-descriptors move-info)]
+     (update-result
+      (record-board
+       (update-abs-pins
+        (update-check
+         (update-effects
+          (do-action
+           (assoc state
+                  :board (move-piece board move)
+                  :turn (other-color turn)
+                  :en-passantable nil
+                  :no-prog-counter (inc no-prog-counter))
+           additional-action)
+          move effect-descriptors)))))))
+  ([{:keys [board turn no-prog-counter] :as state} move-description]
+   (let [move (key move-description)
+         move-info (val move-description)
+         additional-action (:additional-action move-info)
+         effect-descriptors (:effect-descriptors move-info)]
+     (update-result
+      (record-board
+       (update-abs-pins
+        (update-check
+         (update-effects
+          (do-action
+           (assoc state
+                  :board (move-piece board move)
+                  :turn (other-color turn)
+                  :en-passantable nil
+                  :no-prog-counter (inc no-prog-counter))
+           additional-action)
+          move effect-descriptors))))))))
 
 (defn reset-game-state! "Takes an atom and resets it to a valid initial game state" [game-state]
   (reset! game-state {:board board/starting-position
