@@ -8,52 +8,76 @@
             [cljess.random-bot :as random-bot]))
 
 (defonce game-state (r/atom nil))
-(defonce flip-board (r/atom false))
-(defonce square-selection (r/atom nil))
-(defonce debug-piece-selection (r/atom nil))
-(defonce debug-mode (r/atom false))
-(defonce show-new-game-dialogue (r/atom false))
-(defonce player (r/atom :w))
+(defonce app-state
+  (r/atom {:flip-board false
+           :square-selection nil
+           :debug-piece-selection nil
+           :debug-mode false
+           :show-new-game-dialogue false
+           :player :w}))
+;;(defonce flip-board (r/atom false))
+;;(defonce square-selection (r/atom nil))
+;;(defonce debug-piece-selection (r/atom nil))
+;;(defonce debug-mode (r/atom false))
+;;(defonce show-new-game-dialogue (r/atom false))
+;;(defonce player (r/atom :w))
 
 (defn new-game!
   ([]
    (logic/reset-game-state! game-state)
-   (reset! square-selection nil)
-   (reset! debug-mode false)
-   (reset! debug-piece-selection nil)
-   (reset! player :w)
-   (reset! show-new-game-dialogue false))
+   (reset! app-state {:flip-board false
+                      :square-selection nil
+                      :debug-piece-selection nil
+                      :debug-mode false
+                      :show-new-game-dialogue false
+                      :player :w}))
+   ;;(reset! square-selection nil)
+   ;;(reset! debug-mode false)
+   ;;(reset! debug-piece-selection nil)
+   ;;(reset! player :w)
+   ;;(reset! show-new-game-dialogue false))
   ([player-color bot-choice]
    (logic/reset-game-state! game-state)
-   (reset! square-selection nil)
-   (reset! debug-mode false)
-   (reset! show-new-game-dialogue false)
-   (reset! flip-board (case player-color :w false :b true))
-   (when (= player-color :b) (reset! game-state (random-bot/make-move @game-state)))
-   (reset! player player-color)))
+   (reset! app-state {:flip-board (case player-color :w false :b true)
+                      :square-selection nil
+                      :debug-piece-selection nil
+                      :debug-mode false
+                      :show-new-game-dialogue false
+                      :player player-color})
+   ;;(reset! square-selection nil)
+   ;;(reset! debug-mode false)
+   ;;(reset! show-new-game-dialogue false)
+   ;;(reset! flip-board (case player-color :w false :b true))
+   (when (= player-color :b) (reset! game-state (random-bot/make-move @game-state)))))
+   ;;(reset! player player-color)))
   ;;(reset! flip-board (case player-color "white" false "black" true))
   ;;(reset! show-new-game-dialogue false))
   ;;(reset! flip-board (case player-color :w false :b true)))
 
 (defn clear-board! []
   (swap! game-state (fn [state board] (assoc state :board board)) board/empty-board)
-  (reset! square-selection nil))
+  (swap! app-state #(assoc % :square-selection nil)))
+
+
 
 (defn square [piece coord color]
   [:button
    {:class (str "square " color)
-    :on-click #(if @debug-mode
-                  (if-not (nil? @debug-piece-selection)
-                    (swap! game-state
-                           (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece)))
-                           coord @debug-piece-selection))
-                  (if (and (nil? @square-selection) (zero? (logic/get-piece (:board @game-state) coord))) nil
-                            (if (nil? @square-selection) (reset! square-selection coord)
-                                (if (logic/legal? @game-state @square-selection coord)
-                                  (do (swap! game-state logic/make-move @square-selection coord)
-                                      (reset! square-selection nil)
-                                      (reset! game-state (random-bot/make-move @game-state)))
-                                  (reset! square-selection nil)))))}
+    :on-click (fn [] (if (:debug-mode @app-state)
+                       (when-not (nil? (:debug-piece-selection @app-state))
+                         (swap! game-state
+                                (fn [state pos piece] (assoc state :board (assoc-in (:board state) pos piece)))
+                                coord (:debug-piece-selection @app-state)))
+                       (if (and (nil? (:square-selection @app-state))
+                                (zero? (logic/get-piece (:board @game-state) coord)))
+                         nil
+                         (if (nil? (:square-selection @app-state))
+                           (swap! app-state #(assoc % :square-selection coord))
+                           (if (logic/legal? @game-state (:square-selection @app-state) coord)
+                             (do (swap! game-state logic/make-move (:square-selection @app-state) coord)
+                                 (swap! app-state #(assoc % :square-selection nil))
+                                 (reset! game-state (random-bot/make-move @game-state)))
+                             (swap! app-state #(assoc % :square-selection nil)))))))}
    [:img {:src piece}]])
 
 (defn reverse-board [board]
@@ -61,7 +85,7 @@
 
 (defn chess-board []
   (let [v ["light" "dark"]]
-    #(if-not @flip-board
+    #(if-not (:flip-board @app-state)
       (into [:div] (for [i (range 8)]
                      [:div {:class "board-row"}
                       (map-indexed (fn [j el]
@@ -75,7 +99,9 @@
 
 (defn piece-pane []
   (reduce (fn [res piece]
-            (conj res [:button {:on-click #(reset! debug-piece-selection piece)} [:img {:src (piece/image piece)}]]))
+            (conj res
+                  [:button {:on-click (fn [] (swap! app-state #(assoc % :debug-piece-selection piece)))}
+                   [:img {:src (piece/image piece)}]]))
           [:div]
           [:wk :wq :wr :wb :wn :wp :bk :bq :br :bb :bn :bp]))
 
@@ -127,13 +153,16 @@
   [:div
    [:h1 "Cljess!"]
    [chess-board]
-   [:button {:class "medium-button" :on-click #(reset! show-new-game-dialogue true)} "New Game"]
-   ;;[:button {:class "medium-button" :on-click #(reset! debug-mode true)} "God Mode"]
-   ;;[:button {:class "medium-button" :on-click #(reset! debug-mode false)} "Play Mode"]
-   ;;[:button {:class "medium-button" :on-click #(clear-board!)} "Clear Board"]
-   (when @show-new-game-dialogue [create-game-form])
+   [:button {:class "medium-button"
+             :on-click (fn [] (swap! app-state #(assoc % :show-new-game-dialogue true)))} "New Game"]
+   [:button {:class "medium-button"
+             :on-click (fn [] (swap! app-state #(assoc % :debug-mode true)))} "God Mode"]
+   [:button {:class "medium-button"
+             :on-click (fn [] (swap! app-state #(assoc % :debug-mode false)))} "Play Mode"]
+   [:button {:class "medium-button" :on-click #(clear-board!)} "Clear Board"]
+   (when (:show-new-game-dialogue @app-state) [create-game-form])
    (when-not (nil? (:result @game-state)) [result-display])
-   ;;(when @debug-mode [piece-pane])
+   (when (:debug-mode @app-state) [piece-pane])
    [turn-display]])
 
 (defn init! []
