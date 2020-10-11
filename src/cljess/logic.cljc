@@ -64,7 +64,7 @@
 ;;helper functions for finding legal moves
 (defn moves-in-direction "Get the legal moves for a piece at pos on board in direction (e.g. :nw, :up, etc.)"
   [board pos dir]
-  (let [dir-vec (case dir :up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1])]
+  (let [dir-vec (dir-to-vec dir)]
     (loop [moves {} next-pos (vector-add pos dir-vec)]
       (if-not (and (on-board? next-pos) (zero? (get-piece board next-pos)))
         moves
@@ -79,7 +79,7 @@
 ;;-----------------;;
 
 (defn capture-in-direction [board pos dir]
-  (let [dir-vec (case dir :up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1])]
+  (let [dir-vec (dir-to-vec dir)]
     (loop [next-pos (vector-add pos dir-vec)]
       (if (or (not (on-board? next-pos)) (same-color? board pos next-pos))
         {}
@@ -96,7 +96,7 @@
 
 ;;check finding helpers
 (defn check-in-direction [board pos dir]
-  (let [dir-vec (case dir :up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1])]
+  (let [dir-vec (dir-to-vec dir)]
     (loop [capture #{} next-pos (vector-add pos dir-vec)]
       (if-not (on-board? next-pos)
         capture
@@ -115,7 +115,7 @@
                 (conj res (piece/typeof (get-piece board new-pos)))
                 res)))
           #{}
-          [[1 2] [-1 2] [1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]))
+          [[1 2] [-1 2] [1 -2] [-1 -2] [2 1] [-2 1] [2 -1] [-2 -1]]))
 
 (defn pawn-checks [board pos]
   (let [moves (case (piece/color (get-piece board pos)) :w [[-1 1] [-1 -1]] :b [[1 1] [1 -1]])
@@ -435,52 +435,42 @@
          move-info ((legal-moves state from) move)
          additional-action (:additional-action move-info)
          effect-descriptors (:effect-descriptors move-info)]
-     (update-result
-      (record-board
-       (update-abs-pins
-        (update-check
-         (update-effects
-          (do-action
-           (assoc state
-                  :board (move-piece board move)
-                  :turn (other-color turn)
-                  :en-passantable nil
-                  :no-prog-counter (inc no-prog-counter))
-           additional-action)
-          move effect-descriptors)))))))
+     (-> state
+         (assoc :board (move-piece board move)
+                :turn (other-color turn)
+                :en-passantable nil
+                :no-prog-counter (inc no-prog-counter))
+         (do-action additional-action)
+         (update-effects move effect-descriptors)
+         update-check update-abs-pins record-board update-result)))
   ([{:keys [board turn no-prog-counter] :as state} move-description]
    (let [move (key move-description)
          move-info (val move-description)
          additional-action (:additional-action move-info)
          effect-descriptors (:effect-descriptors move-info)]
-     (update-result
-      (record-board
-       (update-abs-pins
-        (update-check
-         (update-effects
-          (do-action
-           (assoc state
-                  :board (move-piece board move)
-                  :turn (other-color turn)
-                  :en-passantable nil
-                  :no-prog-counter (inc no-prog-counter))
-           additional-action)
-          move effect-descriptors))))))))
+     (-> state
+         (assoc :board (move-piece board move)
+                :turn (other-color turn)
+                :en-passantable nil
+                :no-prog-counter (inc no-prog-counter))
+         (do-action additional-action)
+         (update-effects move effect-descriptors)
+         update-check update-abs-pins record-board update-result))))
 
-(defn reset-game-state! "Takes an atom and resets it to a valid initial game state" [game-state]
-  (reset! game-state {:board board/starting-position
-                      :wqr-moved false
-                      :wkr-moved false
-                      :wk-moved false
-                      :bqr-moved false
-                      :bkr-moved false
-                      :bk-moved false
-                      :wk-pos [7 4]
-                      :bk-pos [0 4]
-                      :en-passantable nil
-                      :turn :w
-                      :check false
-                      :abs-pins #{} ;;positions of absolutely pinned pieces
-                      :no-prog-counter 0 ;;how many turns without progress (draw if reaches 50)
-                      :previous-boards {} ;;keep track of game history between progressions
-                      :result nil}))
+(def new-game-state "A representation of the initial game state"
+  {:board board/starting-position
+   :wqr-moved false
+   :wkr-moved false
+   :wk-moved false
+   :bqr-moved false
+   :bkr-moved false
+   :bk-moved false
+   :wk-pos [7 4]
+   :bk-pos [0 4]
+   :en-passantable nil
+   :turn :w
+   :check false
+   :abs-pins #{} ;;positions of absolutely pinned pieces
+   :no-prog-counter 0 ;;how many turns without progress (draw if reaches 50)
+   :previous-boards {} ;;keep track of game history between progressions
+   :result nil})

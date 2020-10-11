@@ -7,7 +7,7 @@
             [cljess.logic :as logic]
             [cljess.random-bot :as random-bot]))
 
-(defonce game-state (r/atom nil))
+(defonce game-state (r/atom logic/new-game-state))
 (defonce app-state
   (r/atom {:flip-board false
            :square-selection nil
@@ -15,44 +15,25 @@
            :debug-mode false
            :show-new-game-dialogue false
            :player :w}))
-;;(defonce flip-board (r/atom false))
-;;(defonce square-selection (r/atom nil))
-;;(defonce debug-piece-selection (r/atom nil))
-;;(defonce debug-mode (r/atom false))
-;;(defonce show-new-game-dialogue (r/atom false))
-;;(defonce player (r/atom :w))
 
 (defn new-game!
   ([]
-   (logic/reset-game-state! game-state)
+   (reset! game-state logic/new-game-state)
    (reset! app-state {:flip-board false
                       :square-selection nil
                       :debug-piece-selection nil
                       :debug-mode false
                       :show-new-game-dialogue false
                       :player :w}))
-   ;;(reset! square-selection nil)
-   ;;(reset! debug-mode false)
-   ;;(reset! debug-piece-selection nil)
-   ;;(reset! player :w)
-   ;;(reset! show-new-game-dialogue false))
   ([player-color bot-choice]
-   (logic/reset-game-state! game-state)
+   (reset! game-state logic/new-game-state)
    (reset! app-state {:flip-board (case player-color :w false :b true)
                       :square-selection nil
                       :debug-piece-selection nil
                       :debug-mode false
                       :show-new-game-dialogue false
                       :player player-color})
-   ;;(reset! square-selection nil)
-   ;;(reset! debug-mode false)
-   ;;(reset! show-new-game-dialogue false)
-   ;;(reset! flip-board (case player-color :w false :b true))
    (when (= player-color :b) (reset! game-state (random-bot/make-move @game-state)))))
-   ;;(reset! player player-color)))
-  ;;(reset! flip-board (case player-color "white" false "black" true))
-  ;;(reset! show-new-game-dialogue false))
-  ;;(reset! flip-board (case player-color :w false :b true)))
 
 (defn clear-board! []
   (swap! game-state (fn [state board] (assoc state :board board)) board/empty-board)
@@ -166,7 +147,6 @@
    [turn-display]])
 
 (defn init! []
-  (new-game!)
   (r/render [app] (.getElementById js/document "app")))
 
 (init!)
