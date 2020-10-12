@@ -3,8 +3,37 @@
 ;;-------------------------------------------------------;;
 (ns cljess.logic
   (:require [cljess.piece :as piece]
-            [cljess.board :as board]
-            [reagent.core :as r]))
+            [cljess.board :as board]))
+
+;;---------------------------;;
+;;-Game state representation-;;
+;;---------------------------;;
+
+(def new-game-state "A representation of the initial game state"
+  {:board board/starting-position
+   :wqr-moved false
+   :wkr-moved false
+   :wk-moved false
+   :bqr-moved false
+   :bkr-moved false
+   :bk-moved false
+   :wk-pos [7 4]
+   :bk-pos [0 4]
+   :en-passantable nil
+   :turn :w
+   :check false
+   :abs-pins #{} ;;positions of absolutely pinned pieces
+   :no-prog-counter 0 ;;how many turns without progress (draw if reaches 50)
+   :previous-boards {} ;;keep track of game history between progressions
+   :result nil})
+
+;;--------------------------------------------------------------------------------------------------------;;
+;;-Move representation------------------------------------------------------------------------------------;;
+;;---Single Move: [[from-y from-x] [to-y to-x]]-----------------------------------------------------------;;
+;;---Complete Move: key = [from to]-----------------------------------------------------------------------;;
+;;------------------val = {:additional-action [:move single-move]-or-[:delete pos]------------------------;;
+;;-------------------------:effect-descriptors [effect keywords e.g. :progress, :wk-moved, :queen, etc.]}-;;
+;;--------------------------------------------------------------------------------------------------------;;
 
 ;;--------------------------;;
 ;;-General helper functions-;;
@@ -40,11 +69,6 @@
 (def dir-to-vec {:up [-1 0] :down [1 0] :left [0 -1] :right [0 1] :nw [-1 -1] :ne [-1 1] :sw [1 -1] :se [1 1]})
 
 (def other-color {:w :b :b :w})
-
-;;Single Move: [[from-y from-x] [to-y to-y]]
-;;Complete Move: key: [from to]
-;;               val: {:additional-action [:move single-move]-or-[:delete pos]
-;;                     :effect-descriptors [effect keywords e.g. :progress, :king-move, etc.]}
 
 ;;------------------;;
 ;;-Movement helpers-;;
@@ -391,7 +415,9 @@
 ;;-Legal move execution-;;
 ;;----------------------;;
 
-(defn legal? [state from to] (contains? (legal-moves state from) [from to]))
+(defn legal? "Returns true if moving the piece at 'from' to 'to' is legal for game state 'state'; false otherwise"
+  [state from to]
+  (contains? (legal-moves state from) [from to]))
 
 (defn do-action [{board :board :as state} [action arg :as a]]
   (if (nil? a)
@@ -429,7 +455,7 @@
         (assoc state :result (other-color turn))
         state))))
 
-(defn make-move
+(defn make-move "Update state to reflect the specified move; Move should be checked for legality first by calling legal?"
   ([{:keys [board turn no-prog-counter] :as state} from to]
    (let [move [from to]
          move-info ((legal-moves state from) move)
@@ -456,21 +482,3 @@
          (do-action additional-action)
          (update-effects move effect-descriptors)
          update-check update-abs-pins record-board update-result))))
-
-(def new-game-state "A representation of the initial game state"
-  {:board board/starting-position
-   :wqr-moved false
-   :wkr-moved false
-   :wk-moved false
-   :bqr-moved false
-   :bkr-moved false
-   :bk-moved false
-   :wk-pos [7 4]
-   :bk-pos [0 4]
-   :en-passantable nil
-   :turn :w
-   :check false
-   :abs-pins #{} ;;positions of absolutely pinned pieces
-   :no-prog-counter 0 ;;how many turns without progress (draw if reaches 50)
-   :previous-boards {} ;;keep track of game history between progressions
-   :result nil})
